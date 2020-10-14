@@ -1,0 +1,151 @@
+---
+title: "DCP ILI Dig Analysis"
+author: "RSI - Pipeline Solutions"
+date: "10/14/2020"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+```
+
+## ILI Dig Analysis
+
+This report will analyze the results of several direct examination comparing the depth reported by the ILI vendor with the depth found when the pipeline was excavated. The analysis will cover the likelihood that the difference between the reported depth by the ILI vendor and dig results will be within the published specifications of the ILI tool. Table 1 summarizes the findings.
+
+```{r data import}
+library(tidyverse)
+
+dcp <- read_csv("dcp_digs.csv") %>%
+  filter(!is.na(found_pct)) %>%
+  mutate(y = if_else(abs(called_pct - found_pct) > 10, 0, 1))
+
+knitr::kable(dcp[,c(1,5,9,10)],caption = "Table 1")
+
+```
+
+## Binomial Updating
+
+This section will investigate the likelihood of an anomaly being within the tool vendor specifications. Later on in this report will review the magnitude of error to be expected. But, this section will only investigate how likely the tool performed to specification.
+
+```{r binomial update}
+
+
+#add the number of unsuccessful trials to the second shape factor
+
+# create a data frame for plotting
+
+x <- seq(0.001, 1, length.out = 1000)
+shape21 = 2 + sum(dcp$y)
+shape22 = 2 + nrow(dcp) - sum(dcp$y)
+shape11 = 2
+shape12 = 2
+
+
+
+df5 <- data.frame(x,
+                  dbeta(x = x,
+                        shape1 = shape21,
+                        shape2 = shape22))
+  
+df0 <- data.frame(x,
+                    dbeta(x = x,
+                          shape1 = shape11,
+                          shape2 = shape12))
+
+names(df0) <- c("x", "dbet")
+names(df5) <- c("x", "dbet")
+
+
+ggplot(NULL) +
+  geom_line(
+    data = df0,
+    aes(x, dbet),
+    col = "grey75",
+    lwd = 1.2,
+    lty = 4,
+    alpha = 1
+  ) +
+  geom_line(data = df5,
+            aes(x, dbet),
+            col = "red",
+            lwd = 1.15) +
+  geom_segment(
+    aes(
+      x = qbeta(.025, shape21, shape22),
+      xend = qbeta(0.975, shape21, shape22),
+      y = dbeta(qbeta(0.01, shape21, shape22), shape21, shape22),
+      yend = dbeta(qbeta(0.01, shape21, shape22), shape21, shape22)
+    ),
+    col = "blue",
+    lwd = 1.15,
+    arrow = arrow(length = unit(0.1, "inches"))
+  ) +
+  geom_segment(
+    aes(
+      xend = qbeta(.025, shape21, shape22),
+      x = qbeta(0.975, shape21, shape22),
+      y = dbeta(qbeta(0.01, shape21, shape22), shape21, shape22),
+      yend = dbeta(qbeta(0.01, shape21, shape22), shape21, shape22)
+    ),
+    col = "blue",
+    lwd = 1.2,
+    arrow = arrow(length = unit(0.1, "inches"))
+  ) +
+  theme_bw("serif", base_size = 16) +
+  labs(title = "Probability of Anomaly Being Within Spec.",
+       y = NULL, 
+       x = "Probability") +
+  theme(
+    axis.text.y = element_blank(),
+    plot.title = element_text(size = 24),
+    plot.margin = margin(0.3, 0.3, 0.3, 0.3, "in"),
+    axis.ticks.y = element_blank()
+  ) +
+  annotate(
+    "text",
+    label = "95% Credible Interval",
+    x = 0.36,
+    y = 0.20,
+    size = 4
+  ) +
+  geom_segment(aes(
+    x = qbeta(0.975, shape21, shape22),
+    xend = qbeta(0.975, shape21, shape22),
+    y = 0,
+    yend = 0.5
+  ),
+  col = "blue",
+  lwd = 1) +
+  geom_segment(aes(
+    xend = qbeta(0.025, shape21, shape22),
+    x = qbeta(0.025, shape21, shape22),
+    y = 0,
+    yend = dbeta(qbeta(0.025, shape21, shape22), shape21, shape22)
+  ),
+  col = "blue",
+  lwd = 1)
+
+
+
+```
+
+## Error Magnitude
+
+This section will deal with the magnitude of the probable error. Assuming that the measurement error is independent and identically distributed it would be expected that the measurement error would follow a normal distribution. To verify this assumption, the difference between the called and found depths was put into a Q-Q Plot. If the data follows a normal distribution it will follow on the solid 1:1 line and be between the upper and lower 95% confidence interval broken lines. The data shows and excellent fit to a normal distribution. Because of this, inferences can be made about the probability of the magnitude of error.
+
+```{r normal distribution}
+
+dcp <- dcp %>% mutate(delta=called_pct-found_pct)
+
+library(car)
+qqPlot(dcp$delta, main="Q-Q Plot of Differences", ylab="Called - Found (%)")
+```
+```{r normal predicions}
+m <- mean(dcp$delta)
+sdv <- sd(dcp$delta)
+
+qnorm(p = c(0.025,0.975), m, sdv)
+
+```
+
