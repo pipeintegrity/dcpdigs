@@ -11,13 +11,16 @@ knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
 
 ## ILI Dig Analysis
 
-This report will analyze the results of several direct examination comparing the depth reported by the ILI vendor with the depth found when the pipeline was excavated. The analysis will cover the likelihood that the difference between the reported depth by the ILI vendor and dig results will be within the published specifications of the ILI tool. Table 1 summarizes the findings.
+This report will analyze the results of several direct examination comparing the depth reported by the ILI vendor with the depth found when the pipeline was excavated. The analysis will cover the likelihood that the difference between the reported depth by the ILI vendor and dig results will be within the published specifications of the ILI tool. Table 1 summarizes the findings. For the error analysis, the first three anomalies are excluded. The first one was a reported dent where an approximately 10% internal corrosion anomaly was found.  This was probably outside the limits of probability of detection for the ILI tool. The other two were reported as "Linear Longitudinal Weld Anomaly" which turned out to be areas where the manufacturer removed the DSAW weld cap with no wall loss and were remediated by recoating only.
 
 ```{r data import}
 library(tidyverse)
 
+
 dcp <- read_csv("dcp_digs.csv") %>%
-  filter(!is.na(found_pct)) %>%
+  filter(!is.na(found_pct)) 
+
+dcp2 <-  dcp[-c(1:3),] %>% 
   mutate(y = if_else(abs(called_pct - found_pct) > 10, 0, 1))
 
 knitr::kable(dcp[,c(1,5,9,10)],caption = "Table 1")
@@ -26,9 +29,9 @@ knitr::kable(dcp[,c(1,5,9,10)],caption = "Table 1")
 
 ## Binomial Updating
 
-This section will investigate the likelihood of an anomaly being within the tool vendor specifications. Later on in this report will review the magnitude of error to be expected. But, this section will only investigate how likely the tool performed to specification.
+This section will investigate the likelihood of an anomaly being within the tool vendor specifications. Binomial means that there are one of two possible outcomes (in-spec, not in-spec) and this will quantify the probability of a reported anomaly being within the vendor's depth tolerance. Later in this report, the expected magnitude of the error will be investigated.  
 
-```{r binomial update}
+```{r binomial update, fig.cap = "Figure 1: Probability of Being Within Specification" }
 
 
 #add the number of unsuccessful trials to the second shape factor
@@ -36,8 +39,8 @@ This section will investigate the likelihood of an anomaly being within the tool
 # create a data frame for plotting
 
 x <- seq(0.001, 1, length.out = 1000)
-shape21 = 2 + sum(dcp$y)
-shape22 = 2 + nrow(dcp) - sum(dcp$y)
+shape21 = 2 + sum(dcp2$y)
+shape22 = 2 + nrow(dcp2) - sum(dcp2$y)
 shape11 = 2
 shape12 = 2
 
@@ -98,7 +101,7 @@ ggplot(NULL) +
        x = "Probability") +
   theme(
     axis.text.y = element_blank(),
-    plot.title = element_text(size = 24),
+    plot.title = element_text(size = 18),
     plot.margin = margin(0.3, 0.3, 0.3, 0.3, "in"),
     axis.ticks.y = element_blank()
   ) +
@@ -126,26 +129,112 @@ ggplot(NULL) +
   col = "blue",
   lwd = 1)
 
-
+hdi_int <- HDInterval::hdi(rbeta(1000, shape21, shape22))
 
 ```
+  
+The expected percent of reported anomalies that would be in-spec ranges from `r round(hdi_int[[1]],3)*100` to `r round(hdi_int[[2]],3)*100` percent.  This wide range of uncertainty is due to the relatively small number of data points available. As more data is collected, this range will narrow.
 
 ## Error Magnitude
 
-This section will deal with the magnitude of the probable error. Assuming that the measurement error is independent and identically distributed it would be expected that the measurement error would follow a normal distribution. To verify this assumption, the difference between the called and found depths was put into a Q-Q Plot. If the data follows a normal distribution it will follow on the solid 1:1 line and be between the upper and lower 95% confidence interval broken lines. The data shows and excellent fit to a normal distribution. Because of this, inferences can be made about the probability of the magnitude of error.
+This section will quantify the magnitude of the probable error. Assuming that the measurement error is independent and identically distributed, it would be expected that it would follow a normal distribution. To verify this assumption, the difference between the called and found depths was put into a Q-Q Plot. If the data follows a normal distribution it will follow the solid 1:1 line and be between the upper and lower 95% confidence level represented by the two broken lines. The data shows and excellent fit to a normal distribution with the 6th and 10th data points having the largest deviation from an ideal distribution but still within the confidence bounds. Because of this excellent fit, inferences can be made about the probability of the magnitude of error.
 
-```{r normal distribution}
+```{r normal distribution, fig.cap="Figure 2: Q-Q Plot"}
 
 dcp <- dcp %>% mutate(delta=called_pct-found_pct)
 
 library(car)
 qqPlot(dcp$delta, main="Q-Q Plot of Differences", ylab="Called - Found (%)")
 ```
-```{r normal predicions}
-m <- mean(dcp$delta)
-sdv <- sd(dcp$delta)
+  
+```{r mean and SD}
 
-qnorm(p = c(0.025,0.975), m, sdv)
+m <- mean(dcp$delta[-c(1:3)])
+sdv <- sd(dcp$delta[-c(1:3)])
+
+range <- qnorm(p = c(0.025,0.975), m, sdv)
 
 ```
 
+
+## Prediction Interval 
+Based on the normal distribution of error a probability interval can be constructed using the mean and standard deviation of the differences between the reported and measured during the direct examination. The mean was `r round(m,3)`% which indicates that the number and magnitude of errors are roughly equally weighted to undercalling as to overcalling the anomalies.  The standard deviation is `r round(sdv,1)`% which is very large.  For comparison, a tolerance specification of $\pm$ 10%, 80% of the time equates to a standard deviation of approximately 8%.  This means that based on this data the amount of deviation from the mean would be three times more than would be expected based on the above tool specification.
+
+```{r normal predicions,fig.cap= "Figure 3: Normal Distribution of Error"}
+
+top_lft <- dnorm(range[1], m, sdv)
+top_rt <- dnorm(range[2], m, sdv)
+
+dat <- tibble(x=seq(-60,60, length.out = 1500))
+
+ggplot(dat, aes(x)) +
+  stat_function(
+    fun = dnorm,
+    args = list(m, sdv),
+    col = 'red',
+    lwd = 0.8
+  ) +
+  stat_function(
+    fun = dnorm,
+    args = list(m, sdv),
+    lwd = 0.8,
+    geom = "area",
+    fill = 'steelblue2',
+    xlim = c(range[1], range[2]),
+    alpha = 0.5
+  ) +
+  theme_bw(16, "serif") +
+  theme(axis.text.y = element_blank(),
+        axis.ticks.y = element_blank()) +
+  labs(
+    title = "95% Prediction Interval",
+    subtitle = "Based on a Normal Distribution of Error",
+    x = "Percent Difference (%)",
+    y = NULL
+  ) +
+  geom_segment(
+    aes(
+      x = range[1],
+      xend = range[2],
+      y = 0.001,
+      yend = 0.001
+    ),
+    lwd = 0.75,
+    col = 'black',
+    arrow = arrow(length = unit(0.125, "inches"))
+  ) +
+  geom_segment(
+    aes(
+      xend = range[1],
+      x = range[2],
+      y = 0.001,
+      yend = 0.001
+    ),
+    lwd = 0.75,
+    col = 'black',
+    arrow = arrow(length = unit(0.125, "inches"))
+  ) +
+  geom_segment(aes(
+    x = range[1],
+    xend = range[1],
+    y = 0,
+    yend = top_lft
+  ),
+  lwd = 0.75) +
+  geom_segment(aes(
+    x = range[2],
+    xend = range[2],
+    y = 0,
+    yend = top_rt
+  ),
+  lwd = 0.75) +
+  annotate("text",
+           x = mean(range),
+           y = 0.002,
+           label = "95% Prediction Interval")+
+  scale_x_continuous(breaks = scales::pretty_breaks())
+
+```
+  
+## Summary  
+Based on this analysis, the tool is exhibiting significant differences between what is reported by the vendor and what is found during direct examination although the under and overcalling of depth are equally weighted.  The mean of approximately zero indicates that there is no bias (constant offset) to the tool measurement error and the observed differences are random. Typically, in statistics 95% of the population is considered as the likely range of expected values.  This implies that there 2.5% probability of the values being below or above the extents of the range.  The 95% prediction interval for this data would range from `r round(range[1],1)`% (undercalled) to `r round(range[2],1)`% (overcalled).
