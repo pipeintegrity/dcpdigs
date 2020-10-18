@@ -133,13 +133,57 @@ hdi_int <- HDInterval::hdi(rbeta(1000, shape21, shape22))
 
 ```
   
-The expected percent of reported anomalies that would be in-spec ranges from `r round(hdi_int[[1]],3)*100` to `r round(hdi_int[[2]],3)*100` percent.  This wide range of uncertainty is due to the relatively small number of data points available. As more data is collected, this range will narrow.
+The expected percent of reported anomalies that would be in-spec ranges from `r round(hdi_int[[1]],3)*100` to `r round(hdi_int[[2]],3)*100` percent.  This wide range of uncertainty is due to the relatively small number of data points available. As more data is collected, this range will narrow.  
+  
+Assuming a tool performed to 80% within tolerance a sample of a small number of digs is not always going to have 80% of the digs in tolerance due to variation and sample size. Therefore there is a varying probability of seeing a certain number of the total within tolerance.  Figure 2 indicates the probability of seeing various numbers within specification if the tool performed to 80% within tolerance and a vertical line at the observed performance for reference. It can be seen from this plot that the probability that the actual performance was 80% within tolerance is very unlikely.  
+  
+```{r probability plot, fig.cap="Figure 2: Probability Plot of Tool Performance"}
+
+n_digs=nrow(dcp2)  #Number of Digs Completed
+n_spec=sum(dcp2$y)  #number of total that were in spec
+x1=0:n_digs
+digdata=data.frame(x=x1,y=dbinom(x1,n_digs,0.8))  #Set of dataframe for observed information
+mytitle=paste("Probability Plot of Expected ILI Performance")
+
+#Plot of Binomial Distribution for data #
+#This is the distribution expected if it performed to 80% as spec'd
+digdata %>%  #set filter to threshold for plotting so you don't have to start at zero
+  ggplot(aes(x, y)) +
+  geom_bar(stat = "identity",
+           fill = 'steelblue2',
+           col = 'black') +
+  theme_bw(14, "serif") +
+  geom_vline(
+    xintercept = n_spec,
+    lty = 2,
+    alpha = 0.75,
+    col = 'red',
+    lwd = 1
+  ) +
+  #xlim(4,12)+
+  labs(title = mytitle,
+       x = "Number of Digs in Tolerance",
+       y = NULL) +
+  annotate(
+    geom = "text",
+    x = n_spec + 0.30,
+    y = 0.15,
+    label = "Observed Performance",
+    angle = -90,
+    size = 5
+  ) +
+  theme(plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm")) +
+  scale_y_continuous(breaks = scales::pretty_breaks())+
+  scale_x_continuous(breaks=scales::pretty_breaks())
+
+```
+
 
 ## Error Magnitude
 
 This section will quantify the magnitude of the probable error. Assuming that the measurement error is independent and identically distributed, it would be expected that it would follow a normal distribution. To verify this assumption, the difference between the called and found depths was put into a Q-Q Plot. If the data follows a normal distribution it will follow the solid 1:1 line and be between the upper and lower 95% confidence level represented by the two broken lines. The data shows and excellent fit to a normal distribution with the 6th and 10th data points having the largest deviation from an ideal distribution but still within the confidence bounds. Because of this excellent fit, inferences can be made about the probability of the magnitude of error.
 
-```{r normal distribution, fig.cap="Figure 2: Q-Q Plot"}
+```{r normal distribution, fig.cap="Figure 3: Q-Q Plot"}
 
 dcp <- dcp %>% mutate(delta=called_pct-found_pct)
 
@@ -160,7 +204,7 @@ range <- qnorm(p = c(0.025,0.975), m, sdv)
 ## Prediction Interval 
 Based on the normal distribution of error a probability interval can be constructed using the mean and standard deviation of the differences between the reported and measured during the direct examination. The mean was `r round(m,3)`% which indicates that the number and magnitude of errors are roughly equally weighted to undercalling as to overcalling the anomalies.  The standard deviation is `r round(sdv,1)`% which is very large.  For comparison, a tolerance specification of $\pm$ 10%, 80% of the time equates to a standard deviation of approximately 8%.  This means that based on this data the amount of deviation from the mean would be three times more than would be expected based on the above tool specification.
 
-```{r normal predicions,fig.cap= "Figure 3: Normal Distribution of Error"}
+```{r normal predicions,fig.cap= "Figure 4: Normal Distribution of Error"}
 
 top_lft <- dnorm(range[1], m, sdv)
 top_rt <- dnorm(range[2], m, sdv)
@@ -183,6 +227,7 @@ ggplot(dat, aes(x)) +
     xlim = c(range[1], range[2]),
     alpha = 0.5
   ) +
+  # stat_function(fun=dnorm, args=list(0, 0.1/qnorm(0.9)*100), lwd=0.8, col='grey50', lty=2)+
   theme_bw(16, "serif") +
   theme(axis.text.y = element_blank(),
         axis.ticks.y = element_blank()) +
